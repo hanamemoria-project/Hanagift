@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hana Memoria - AR Experience</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+        /* CSS UNTUK TAMPILAN PESAN & ADMIN */
+        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        #main-container { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; transition: transform 0.8s ease-in-out; }
+        .card { background: white; padding: 30px; border-radius: 20px; text-align: center; width: 80%; max-width: 300px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .btn-utama { border: none; padding: 12px 25px; border-radius: 50px; color: white; font-weight: bold; cursor: pointer; margin-top: 20px; width: 100%; }
+        
+        /* PANEL KONTROL ADMIN (Hanya muncul jika &admin=true) */
+        #admin-controls { position: fixed; top: 0; left: 0; z-index: 9999; background: rgba(0,0,0,0.8); color: white; padding: 10px; display: none; flex-wrap: wrap; gap: 5px; font-size: 10px; width: 100%; justify-content: center; }
+        .btn-admin { background: #444; color: white; border: 1px solid #666; padding: 8px; border-radius: 4px; cursor: pointer; }
+        
+        /* QR OVERLAY */
+        #qr-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:10000; flex-direction:column; justify-content:center; align-items:center; color:white; }
+    </style>
+</head>
+<body>
+
+    <!-- Tombol Mulai (Wajib untuk Autoplay Video di Browser) -->
+    <button id="startBtn" style="position:fixed; inset:0; z-index:9999; background:#000; color:#fff; border:none; font-size:1.2rem;">KLIK UNTUK MEMULAI</button>
+
+    <!-- Panel Kontrol Admin -->
+    <div id="admin-controls">
+        <button class="btn-admin" onclick="move('up')">↑</button>
+        <button class="btn-admin" onclick="move('down')">↓</button>
+        <button class="btn-admin" onclick="move('left')">←</button>
+        <button class="btn-admin" onclick="move('right')">→</button>
+        <button class="btn-admin" onclick="adjust('w', 0.1)">W+</button>
+        <button class="btn-admin" onclick="adjust('w', -0.1)">W-</button>
+        <button class="btn-admin" onclick="adjust('h', 0.1)">H+</button>
+        <button class="btn-admin" onclick="adjust('h', -0.1)">H-</button>
+        <button class="btn-admin" style="background: #27ae60;" onclick="showLogs()">HASIL BERSIH</button>
+        <button class="btn-admin" style="background: #2980b9;" onclick="tampilkanQR()">QR CODE</button>
+    </div>
+
+    <!-- Tampilan Pesan (Amplop Digital) -->
+    <div id="main-container">
+        <div class="card" id="card-pesan">
+            <h2 id="judul-txt">Memuat...</h2>
+            <p id="isi-txt">Sabar ya, kenanganmu sedang disiapkan...</p>
+            <button class="btn-utama" id="btn-next" onclick="handleNext()">LANJUT</button>
+        </div>
+    </div>
+
+    <!-- QR Overlay -->
+    <div id="qr-overlay">
+        <div style="background:white; padding:20px; border-radius:15px; text-align:center;">
+            <img id="qr-img" src="" style="width:200px;"><br>
+            <button class="btn-admin" style="color:black; margin-top:10px;" onclick="document.getElementById('qr-overlay').style.display='none'">TUTUP</button>
+        </div>
+    </div>
+
+    <!-- AR Scene -->
+    <a-scene id="ar-scene" mindar-image="imageTargetSrc: ; autoStart: false; uiScanning: no;" vr-mode-ui="enabled: false">
+        <a-assets>
+            <video id="webVideo" loop="true" crossorigin="anonymous" playsinline></video>
+        </a-assets>
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+        <a-entity mindar-image-target="targetIndex: 0">
+            <a-video id="vDisplay" src="#webVideo" position="0 0 0" width="1" height="1.5"></a-video>
+        </a-entity>
+    </a-scene>
+
+    <script>
+        /* --- KONFIGURASI SUPABASE (GANTI DI SINI) --- */
+        const SUPABASE_URL = 'https://link-proyek-kamu.supabase.co';
+        const SUPABASE_KEY = 'isi-api-key-kamu-di-sini';
+
+        const params = new URLSearchParams(window.location.search);
+        const idPelanggan = params.get('id') || 'default';
+        const isAdmin = params.get('admin') === 'true';
+
+        let slides = [];
+        let slideIndex = 0;
+        let posX = 0, posY = 0, w = 1, h = 1.5, rotZ = 0;
+
+        if(isAdmin) document.getElementById('admin-controls').style.display = 'flex';
+
+        async function loadData() {
+            try {
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/pesanan?id_pelanggan=eq.${idPelanggan}`, {
+                    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+                });
+                const result = await res.json();
+                const data = result[0];
+
+                if(data) {
+                    // 1. Video & Target
+                    document.getElementById('webVideo').src = data.link_video;
+                    document.getElementById('ar-scene').setAttribute('mindar-image', `imageTargetSrc: ${data.link_target}; autoStart: false; uiScanning: no;`);
+                    
+                    // 2. Pesan Slides (Default jika kosong)
+                    slides = data.slides || [{"t": "Selamat Datang!", "b": "Scan fotonya untuk melihat kejutan."}];
+                    
+                    // 3. Posisi AR (Default jika kosong)
+                    const p = (data.video_posisi || "0 0 0").split(' ');
+                    const s = (data.video_skala || "1 1.5 1").split(' ');
+                    posX = parseFloat(p[0]); posY = parseFloat(p[1]);
+                    w = parseFloat(s[0]); h = parseFloat(s[1]);
+                    rotZ = parseFloat((data.video_rotasi || "0 0 0").split(' ')[2]);
+
+                    // 4. Warna (Default Hana Memoria)
+                    document.body.style.backgroundColor = data.warna_bg || "#F5F5DC";
+                    document.getElementById('main-container').style.backgroundColor = data.warna_bg || "#F5F5DC";
+                    document.getElementById('btn-next').style.backgroundColor = data.warna_tombol || "#d4af37";
+                    
+                    updateUI();
+                }
+            } catch (e) { console.error("Data gagal dimuat", e); }
+        }
+
+        function updateUI() {
+            document.getElementById('judul-txt').innerText = slides[slideIndex].t;
+            document.getElementById('isi-txt').innerText = slides[slideIndex].b;
+            document.getElementById('btn-next').innerText = (slideIndex === slides.length - 1) ? "LIHAT KEJUTAN" : "LANJUT";
+            
+            const vd = document.getElementById('vDisplay');
+            vd.setAttribute('position', `${posX} ${posY} 0`);
+            vd.setAttribute('width', w);
+            vd.setAttribute('height', h);
+            vd.setAttribute('rotation', `0 0 ${rotZ}`);
+        }
+
+        function handleNext() {
+            if(slideIndex < slides.length - 1) {
+                slideIndex++;
+                updateUI();
+            } else {
+                document.getElementById('main-container').style.transform = "translateY(-100%)";
+                document.getElementById('ar-scene').systems["mindar-image-system"].start();
+                document.getElementById('webVideo').play();
+            }
+        }
+
+        /* --- FUNGSI ADMIN --- */
+        function move(dir) {
+            if(dir === 'up') posY += 0.05;
+            if(dir === 'down') posY -= 0.05;
+            if(dir === 'left') posX -= 0.05;
+            if(dir === 'right') posX += 0.05;
+            updateUI();
+        }
+        function adjust(type, val) {
+            if(type === 'w') w += val;
+            if(type === 'h') h += val;
+            updateUI();
+        }
+        function showLogs() {
+            alert(`HASIL UNTUK SUPABASE:\nvideo_posisi: ${posX.toFixed(2)} ${posY.toFixed(2)} 0\nvideo_skala: ${w.toFixed(2)} ${h.toFixed(2)} 1\nvideo_rotasi: 0 0 ${rotZ}`);
+        }
+        function tampilkanQR() {
+            const url = `${window.location.origin}${window.location.pathname}?id=${idPelanggan}`;
+            document.getElementById('qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+            document.getElementById('qr-overlay').style.display = 'flex';
+        }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startBtn').style.display = 'none';
+            loadData();
+        });
+    </script>
+</body>
+</html>
