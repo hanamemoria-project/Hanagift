@@ -1,169 +1,862 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hana Memoria - AR Experience</title>
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-    <style>
-        /* CSS UNTUK TAMPILAN PESAN & ADMIN */
-        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
-        #main-container { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; transition: transform 0.8s ease-in-out; }
-        .card { background: white; padding: 30px; border-radius: 20px; text-align: center; width: 80%; max-width: 300px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .btn-utama { border: none; padding: 12px 25px; border-radius: 50px; color: white; font-weight: bold; cursor: pointer; margin-top: 20px; width: 100%; }
-        
-        /* PANEL KONTROL ADMIN (Hanya muncul jika &admin=true) */
-        #admin-controls { position: fixed; top: 0; left: 0; z-index: 9999; background: rgba(0,0,0,0.8); color: white; padding: 10px; display: none; flex-wrap: wrap; gap: 5px; font-size: 10px; width: 100%; justify-content: center; }
-        .btn-admin { background: #444; color: white; border: 1px solid #666; padding: 8px; border-radius: 4px; cursor: pointer; }
-        
-        /* QR OVERLAY */
-        #qr-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:10000; flex-direction:column; justify-content:center; align-items:center; color:white; }
-    </style>
-</head>
-<body>
-
-    <!-- Tombol Mulai (Wajib untuk Autoplay Video di Browser) -->
-    <button id="startBtn" style="position:fixed; inset:0; z-index:9999; background:#000; color:#fff; border:none; font-size:1.2rem;">KLIK UNTUK MEMULAI</button>
-
-    <!-- Panel Kontrol Admin -->
-    <div id="admin-controls">
-        <button class="btn-admin" onclick="move('up')">↑</button>
-        <button class="btn-admin" onclick="move('down')">↓</button>
-        <button class="btn-admin" onclick="move('left')">←</button>
-        <button class="btn-admin" onclick="move('right')">→</button>
-        <button class="btn-admin" onclick="adjust('w', 0.1)">W+</button>
-        <button class="btn-admin" onclick="adjust('w', -0.1)">W-</button>
-        <button class="btn-admin" onclick="adjust('h', 0.1)">H+</button>
-        <button class="btn-admin" onclick="adjust('h', -0.1)">H-</button>
-        <button class="btn-admin" style="background: #27ae60;" onclick="showLogs()">HASIL BERSIH</button>
-        <button class="btn-admin" style="background: #2980b9;" onclick="tampilkanQR()">QR CODE</button>
-    </div>
-
-    <!-- Tampilan Pesan (Amplop Digital) -->
-    <div id="main-container">
-        <div class="card" id="card-pesan">
-            <h2 id="judul-txt">Memuat...</h2>
-            <p id="isi-txt">Sabar ya, kenanganmu sedang disiapkan...</p>
-            <button class="btn-utama" id="btn-next" onclick="handleNext()">LANJUT</button>
-        </div>
-    </div>
-
-    <!-- QR Overlay -->
-    <div id="qr-overlay">
-        <div style="background:white; padding:20px; border-radius:15px; text-align:center;">
-            <img id="qr-img" src="" style="width:200px;"><br>
-            <button class="btn-admin" style="color:black; margin-top:10px;" onclick="document.getElementById('qr-overlay').style.display='none'">TUTUP</button>
-        </div>
-    </div>
-
-    <!-- AR Scene -->
-    <a-scene id="ar-scene" mindar-image="imageTargetSrc: ; autoStart: false; uiScanning: no;" vr-mode-ui="enabled: false">
-        <a-assets>
-            <video id="webVideo" loop="true" crossorigin="anonymous" playsinline></video>
-        </a-assets>
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-        <a-entity mindar-image-target="targetIndex: 0">
-            <a-video id="vDisplay" src="#webVideo" position="0 0 0" width="1" height="1.5"></a-video>
-        </a-entity>
-    </a-scene>
-
-    <script>
-        /* --- KONFIGURASI SUPABASE (GANTI DI SINI) --- */
-        const SUPABASE_URL = 'https://ujnuvlrdxzqtfppbhioo.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Wys7d1gXjKU6koWoPBprBA_2Z0AL9zw';
-
-        const params = new URLSearchParams(window.location.search);
-        const idPelanggan = params.get('id') || 'default';
-        const isAdmin = params.get('admin') === 'true';
-
-        let slides = [];
-        let slideIndex = 0;
-        let posX = 0, posY = 0, w = 1, h = 1.5, rotZ = 0;
-
-        if(isAdmin) document.getElementById('admin-controls').style.display = 'flex';
-
-        async function loadData() {
-            try {
-                const res = await fetch(`${SUPABASE_URL}/rest/v1/pesanan?id_pelanggan=eq.${idPelanggan}`, {
-                    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-                });
-                const result = await res.json();
-                const data = result[0];
-
-                if(data) {
-                    // 1. Video & Target
-                    document.getElementById('webVideo').src = data.link_video;
-                    document.getElementById('ar-scene').setAttribute('mindar-image', `imageTargetSrc: ${data.link_target}; autoStart: false; uiScanning: no;`);
-                    
-                    // 2. Pesan Slides (Default jika kosong)
-                    slides = data.slides || [{"t": "Selamat Datang!", "b": "Scan fotonya untuk melihat kejutan."}];
-                    
-                    // 3. Posisi AR (Default jika kosong)
-                    const p = (data.video_posisi || "0 0 0").split(' ');
-                    const s = (data.video_skala || "1 1.5 1").split(' ');
-                    posX = parseFloat(p[0]); posY = parseFloat(p[1]);
-                    w = parseFloat(s[0]); h = parseFloat(s[1]);
-                    rotZ = parseFloat((data.video_rotasi || "0 0 0").split(' ')[2]);
-
-                    // 4. Warna (Default Hana Memoria)
-                    document.body.style.backgroundColor = data.warna_bg || "#F5F5DC";
-                    document.getElementById('main-container').style.backgroundColor = data.warna_bg || "#F5F5DC";
-                    document.getElementById('btn-next').style.backgroundColor = data.warna_tombol || "#d4af37";
-                    
-                    updateUI();
-                }
-            } catch (e) { console.error("Data gagal dimuat", e); }
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hana Memoria - Perjalanan Kenangan</title>
+    
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;1,500;1,600&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        body { 
+            margin: 0; overflow: hidden; background: #080810; 
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
+            color: white; touch-action: none;
+        }
+        canvas { display: block; }
+        
+        /* ================== UI PARTIKEL & GESTUR ================== */
+        #ui-panel {
+            position: absolute; top: 20px; right: 20px; width: max-content;
+            background: rgba(20, 20, 25, 0.95); 
+            border-radius: 10px; padding: 15px; border: 1px rgba(255, 255, 255, 0.1) solid;
+            z-index: 100;
+        }
+        .ui-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255, 255, 255, 0.6); margin-bottom: 5px; display: block;}
+        input[type="color"] { border: none; width: 100px; height: 30px; border-radius: 5px; cursor: pointer; background: none; }
+
+        /* ── Minimal gesture hint pill (no DOM reflow, opacity only) ── */
+        #gesture-pill {
+            position: absolute; bottom: 110px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(12, 12, 18, 0.88);
+            border: 1px solid rgba(229,154,141,0.35);
+            border-radius: 40px; padding: 10px 22px;
+            font-size: 13px; font-family: 'Poppins', sans-serif;
+            color: rgba(255,255,255,0.9); letter-spacing: 0.5px;
+            z-index: 110; pointer-events: none;
+            will-change: opacity;
+            transition: opacity 0.4s ease;
+            text-align: center; white-space: nowrap;
         }
-
-        function updateUI() {
-            document.getElementById('judul-txt').innerText = slides[slideIndex].t;
-            document.getElementById('isi-txt').innerText = slides[slideIndex].b;
-            document.getElementById('btn-next').innerText = (slideIndex === slides.length - 1) ? "LIHAT KEJUTAN" : "LANJUT";
-            
-            const vd = document.getElementById('vDisplay');
-            vd.setAttribute('position', `${posX} ${posY} 0`);
-            vd.setAttribute('width', w);
-            vd.setAttribute('height', h);
-            vd.setAttribute('rotation', `0 0 ${rotZ}`);
-        }
-
-        function handleNext() {
-            if(slideIndex < slides.length - 1) {
-                slideIndex++;
-                updateUI();
-            } else {
-                document.getElementById('main-container').style.transform = "translateY(-100%)";
-                document.getElementById('ar-scene').systems["mindar-image-system"].start();
-                document.getElementById('webVideo').play();
-            }
-        }
-
-        /* --- FUNGSI ADMIN --- */
-        function move(dir) {
-            if(dir === 'up') posY += 0.05;
-            if(dir === 'down') posY -= 0.05;
-            if(dir === 'left') posX -= 0.05;
-            if(dir === 'right') posX += 0.05;
-            updateUI();
-        }
-        function adjust(type, val) {
-            if(type === 'w') w += val;
-            if(type === 'h') h += val;
-            updateUI();
-        }
-        function showLogs() {
-            alert(`HASIL UNTUK SUPABASE:\nvideo_posisi: ${posX.toFixed(2)} ${posY.toFixed(2)} 0\nvideo_skala: ${w.toFixed(2)} ${h.toFixed(2)} 1\nvideo_rotasi: 0 0 ${rotZ}`);
-        }
-        function tampilkanQR() {
-            const url = `${window.location.origin}${window.location.pathname}?id=${idPelanggan}`;
-            document.getElementById('qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
-            document.getElementById('qr-overlay').style.display = 'flex';
-        }
-
-        document.getElementById('startBtn').addEventListener('click', () => {
-            document.getElementById('startBtn').style.display = 'none';
-            loadData();
-        });
-    </script>
-</body>
-</html>
+        #gesture-pill span { color: #e59a8d; font-weight: 600; }
+        
+        #branding {
+            position: absolute; bottom: 30px; left: 0; width: 100%; text-align: center;
+            z-index: 50; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        #branding h1 { font-size: 28px; font-weight: 400; letter-spacing: 2px; margin: 0 0 5px 0; font-family: 'Playfair Display', serif; }
+        #branding p { font-size: 14px; font-weight: 300; letter-spacing: 1px; margin: 0; opacity: 0.8; font-family: 'Poppins', sans-serif;}
+
+        #sensor-status {
+            position: absolute; top: 20px; left: 20px; font-size: 12px;
+            letter-spacing: 1px; padding: 8px 15px; border-radius: 20px;
+            background: rgba(15, 15, 20, 0.90); border: 1px solid rgba(255,255,255,0.2);
+            transition: color 0.3s, border-color 0.3s, background-color 0.3s; z-index: 100;
+        }
+
+        #loading {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #080810; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            font-size: 18px; font-weight: 200; letter-spacing: 2px; z-index: 2000; transition: opacity 0.5s; text-align: center;
+        }
+        #loading.fade-out { opacity: 0; pointer-events: none; }
+
+        /* guide-list removed for performance */
+
+        /* ================== KARTU PESAN DARI SUPABASE ================== */
+        #message-card {
+            position: absolute; top: 45%; left: 50%; 
+            transform: translate3d(-50%, -40%, 0);
+            width: 320px; background: rgba(25, 25, 30, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 15px;
+            padding: 30px; text-align: center; color: white;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            opacity: 0; pointer-events: none; 
+            transition: opacity 1s ease-out, transform 1s ease-out; z-index: 150;
+            will-change: opacity, transform;
+        }
+        #message-card.show { opacity: 1; transform: translate3d(-50%, -50%, 0); pointer-events: auto; }
+        
+        #card-text-wrapper { transition: opacity 0.3s ease; }
+        #message-card h3 { color: #e59a8d; font-family: 'Playfair Display', serif; font-size: 22px; margin-top: 0; margin-bottom: 12px; font-weight: 600; font-style: italic; }
+        #message-card p { font-family: 'Poppins', sans-serif; font-size: 14px; font-weight: 300; line-height: 1.7; margin-bottom: 25px; color: rgba(255,255,255,0.9);}
+        
+        .btn-utama { background: #d8a07c; font-family: 'Poppins', sans-serif; border: none; padding: 12px 20px; border-radius: 50px; color: white; font-weight: 500; cursor: pointer; width: 100%; transition: transform 0.2s, background 0.2s; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; box-shadow: 0 4px 10px rgba(216, 160, 124, 0.3);}
+        .btn-utama:hover { background: #b88663; transform: translateY(-2px); }
+
+        /* ================== AR MIND AR OVERLAY ================== */
+        #ar-container { position: fixed; inset: 0; z-index: 1; visibility: hidden; opacity: 0; transition: opacity 1s ease; }
+        #ar-container.active { visibility: visible; opacity: 1; z-index: 1000; background: #080810; }
+        
+        #tutorial-overlay { position: fixed; inset: 0; z-index: 1500; display: none; flex-direction: column; justify-content: center; align-items: center; background: rgba(0, 0, 0, 0.6); color: white; backdrop-filter: blur(4px); }
+        .tutorial-logo-container { position: relative; width: 160px; height: 160px; display: flex; justify-content: center; align-items: center; animation: pulseLogo 3.0s ease-in-out infinite; margin-bottom: 40px; }
+        .tutorial-logo { width: 100%; height: auto; object-fit: contain; filter: drop-shadow(0 0 10px rgba(255,255,255,0.5)); }
+        @keyframes pulseLogo { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        .scan-line-logo { position: absolute; top: 0%; left: 0%; right: 0%; height: 3px; background: #d8a07c; box-shadow: 0 0 15px #d8a07c; animation: scanUpDownLogo 2.5s ease-in-out infinite; border-radius: 50%; z-index: 2; }
+        @keyframes scanUpDownLogo { 0% { top: 0%; opacity: 0; } 15% { opacity: 1; } 50% { top: 100%; } 85% { opacity: 1; } 100% { top: 0%; opacity: 0; } }
+        .tutorial-text h3 { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 21px; margin: 0 0 10px 0; letter-spacing: 1px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.5);}
+        .tutorial-text p { font-family: 'Poppins', sans-serif; font-weight: 300; font-size: 13px; color: rgba(255, 255, 255, 0.9); margin: 0; line-height: 1.7; text-shadow: 0 1px 3px rgba(0,0,0,0.5);}
+
+        @media (max-width: 600px) {
+            #branding h1 { font-size: 22px; }
+            #branding p { font-size: 11px; }
+            #sensor-status { top: 15px; left: 50%; transform: translateX(-50%); width: max-content;}
+            #message-card { width: 80%; padding: 25px; }
+            #subtitle-container { bottom: 100px; }
+            #ui-panel { top: auto; bottom: 30px; right: 20px; padding: 10px;}
+            .guide-list { top: 60px; left: 10px; }
+            .step { font-size: 10px; padding: 4px 8px;}
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Menyiapkan Kenangan...<br><span style="font-size: 12px; opacity: 0.5; margin-top: 10px; display: block;" id="loading-sub">Menghubungkan ke server</span></div>
+    <div id="sensor-status" style="color: #ffaaaa;">Kamera Belum Aktif</div>
+    
+    <div id="branding">
+        <h1>Hana Memoria</h1>
+        <p>Mengabadikan cerita dalam setiap bingkai</p>
+    </div>
+
+    <div id="message-card">
+        <div id="card-text-wrapper">
+            <h3 id="card-title">Memuat...</h3>
+            <p id="card-desc">Tunggu sebentar...</p>
+        </div>
+        <button class="btn-utama" id="btn-next" onclick="nextSlide()">LANJUTKAN</button>
+    </div>
+
+    <div id="ui-panel">
+        <label class="ui-label">Warna Partikel</label>
+        <input type="color" id="color-picker" value="#e59a8d">
+    </div>
+
+    <!-- subtitle & guide-list removed for anti-lag -->
+    <!-- Minimal gesture pill: opacity-only transitions, no layout reflow -->
+    <div id="gesture-pill">✊ <span>Genggam tangan</span> untuk memulai</div>
+    <video id="webcam" autoplay playsinline muted style="display: none;"></video>
+
+    <div id="ar-container"></div>
+
+    <div id="tutorial-overlay">
+        <div class="tutorial-logo-container">
+            <img src="https://pub-02d853231cff4efa92ee6754c646a898.r2.dev/Logo_HM.png" class="tutorial-logo" alt="Scanning Logo">
+            <div class="scan-line-logo"></div>
+        </div>
+        <div class="tutorial-text" style="text-align: center;">
+            <h3>Fokus ke Foto</h3>
+            <p>Arahkan kameramu tepat ke foto fisik,<br>saksikan momen indah bersemi kembali. 🌸</p>
+        </div>
+    </div>
+
+    <script id="vertexShader" type="x-shader/x-vertex">
+        uniform float u_time;
+        uniform float u_transition;
+        uniform float u_motionIntensity;
+        uniform float u_pixelRatio;
+        
+        attribute float a_random;
+        attribute vec3 a_startPos;
+        attribute vec3 a_targetPos;
+        
+        varying float vRandom;
+        varying float vDepth;
+        varying vec3 vPos;
+
+        void main() {
+            vRandom = a_random;
+            vec3 basePos = mix(a_startPos, a_targetPos, u_transition);
+
+            // Layered 3D motion — each particle on its own orbit
+            float speed1 = 0.4 + a_random * 0.6;
+            float speed2 = 0.3 + a_random * 0.5;
+            float amp    = (0.04 + a_random * 0.09) * u_motionIntensity;
+            float phase  = a_random * 62.83; // 0..2PI * 10
+
+            vec3 pos = basePos + vec3(
+                sin(u_time * speed1 + phase)        * amp,
+                cos(u_time * speed2 + phase * 1.3)  * amp,
+                sin(u_time * (speed1 + speed2) * 0.5 + phase * 0.7) * amp * 0.6
+            );
+
+            vPos = pos;
+
+            vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+            vDepth = -mvPosition.z;
+
+            // HD: bigger base size, tripled size for "hero" particles (a_random > 0.92)
+            float heroBoost = a_random > 0.92 ? 3.5 : 1.0;
+            float baseSize  = (1.8 + a_random * 2.2) * heroBoost * u_pixelRatio;
+            gl_PointSize = baseSize * (280.0 / -mvPosition.z);
+            gl_Position  = projectionMatrix * mvPosition;
+        }
+    </script>
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        uniform vec3 u_color;
+        uniform vec3 u_color2;
+        varying float vRandom;
+        varying float vDepth;
+        varying vec3 vPos;
+
+        void main() {
+            vec2 uv = gl_PointCoord - vec2(0.5);
+            float dist = length(uv);
+
+            // Hard discard outside circle
+            if (dist > 0.5) discard;
+
+            // === Multi-layer glow (HD bloom effect) ===
+            // 1. Bright hot core
+            float core   = smoothstep(0.12, 0.0,  dist);
+            // 2. Mid glow ring
+            float mid    = smoothstep(0.35, 0.05, dist) * 0.6;
+            // 3. Soft outer halo
+            float outer  = smoothstep(0.50, 0.15, dist) * 0.25;
+
+            float glow = core + mid + outer;
+
+            // Color: blend between two palette colors based on random + position
+            float t = vRandom * 0.7 + sin(vPos.x * 2.0 + vPos.y) * 0.15 + 0.15;
+            t = clamp(t, 0.0, 1.0);
+            vec3 col = mix(u_color, u_color2, t);
+
+            // Hero particles: brighter white-hot core
+            if (vRandom > 0.92) {
+                col = mix(col, vec3(1.0, 0.97, 0.92), core * 0.8);
+            }
+
+            // Brightness boost by random
+            col *= 0.75 + vRandom * 0.5;
+
+            float alpha = glow * 0.92;
+            gl_FragColor = vec4(col, alpha);
+        }
+    </script>
+
+    <script>
+        // --- 1. KONFIGURASI SUPABASE & VARIABEL GLOBAL ---
+        const SUPABASE_URL = 'https://ujnuvlrdxzqtfppbhioo.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqbnV2bHJkeHpxdGZwcGJoaW9vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNjU2OTYsImV4cCI6MjA5MDY0MTY5Nn0.slqPc8v7QZXxHzvMkOlXWAAYebX-sqUIiKZvA9DJkl0';
+        const params = new URLSearchParams(window.location.search);
+        const idPelanggan = params.get('id') || 'default';
+
+        let slides = [];
+        let slideIndex = 0;
+        let mpCameraInstance = null; // Menyimpan koneksi kamera MediaPipe
+
+        // Tiga.js Partikel Variabel
+        let scene, camera, renderer, clock;
+        let particles, particleMaterial;
+        let particleCount = window.innerWidth < 768 ? 5000 : 12000; // HD: was 3000/8000
+        const patternData = {};
+        const patternNames = ['scatter', 'singularity', 'chest', 'chest_open_tulip', 'heart', 'explode', 'frame_dynamic', 'shatter', 'envelope_closed', 'envelope_open'];
+        
+        let currentStage = 0; 
+        let isAnimating = false; 
+        let isUIAnimating = false; 
+        let gestureTimer = 0;
+
+        const statusEl = document.getElementById('sensor-status');
+        // subtitle elements removed for anti-lag
+
+        const gesturePill = document.getElementById('gesture-pill');
+        const GESTURE_HINTS = [
+            '✊ <span>Genggam tangan</span> untuk memulai',
+            '✋ <span>Buka lebar tangan</span> untuk membuka peti',
+            '✌️ Bentuk <span>dua jari</span> untuk menggugurkan kelopak',
+            '☝️ <span>Tunjuk ke depan</span> untuk membingkai cerita',
+            '👆 <span>Tunjuk ke atas</span> untuk menyimpan ke amplop',
+            '🫰 Beri <span>cubitan cinta</span> untuk membuka pesan',
+        ];
+        function setGesturePill(stageIdx) {
+            if (gesturePill && GESTURE_HINTS[stageIdx] !== undefined) {
+                gesturePill.innerHTML = GESTURE_HINTS[stageIdx];
+            }
+        }
+
+        let lastStatusText = "";
+        function updateStatus(text, color = null, borderColor = null) {
+            if (lastStatusText !== text) {
+                statusEl.innerText = text;
+                if (color) statusEl.style.color = color;
+                if (borderColor) statusEl.style.borderColor = borderColor;
+                lastStatusText = text;
+            }
+        }
+
+        // --- 2. FETCH DATA SUPABASE SAAT HALAMAN DIMUAT ---
+        window.onload = async () => {
+            try {
+                document.getElementById('loading-sub').innerText = "Mengambil data pesanan...";
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/Pesanan?id_pesanan=eq.${idPelanggan}`, {
+                    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+                });
+                
+                if (!res.ok) throw new Error("Gagal akses database");
+                
+                const result = await res.json();
+                const data = result[0];
+
+                if(data) {
+                    // Siapkan Slides
+                    let rawSlides = data.slides;
+                    try { if (typeof rawSlides === 'string') rawSlides = JSON.parse(rawSlides); } catch(e) {}
+                    if (Array.isArray(rawSlides) && rawSlides.length > 0 && rawSlides[0].t) {
+                        slides = rawSlides;
+                    } else {
+                        slides = [
+                            { "t": "Kepingan Memori ✨", "b": "Setiap momen memiliki ceritanya sendiri. Hari ini, kenangan manis itu akan kembali dihidupkan khusus untukmu." },
+                            { "t": "Selamat Bernostalgia", "b": "Arahkan kameramu ke foto fisik, dan saksikan keajaibannya. 🌸" }
+                        ];
+                    }
+
+                    // Suntikkan Scene AR MindAR ke HTML
+                    const p = (data.video_posisi || "0 0 0").split(' ');
+                    const s = (data.video_skala || "1 1.5 1").split(' ');
+                    const rotZ = parseFloat((data.video_rotasi || "0 0 0").split(' ')[2]);
+
+                    document.getElementById('ar-container').innerHTML = `
+                        <a-scene id="ar-scene" mindar-image="imageTargetSrc: ${data.link_target}; autoStart: false; uiScanning: no;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+                            <a-assets>
+                                <video id="webVideo" src="${data.link_video}" loop="true" crossorigin="anonymous" playsinline webkit-playsinline></video>
+                            </a-assets>
+                            <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+                            <a-entity mindar-image-target="targetIndex: 0" id="target-ar">
+                                <a-video id="vDisplay" src="#webVideo" position="${p[0]} ${p[1]} 0" width="${s[0]}" height="${s[1]}" rotation="0 0 ${rotZ}"></a-video>
+                            </a-entity>
+                        </a-scene>
+                    `;
+
+                    // Mulai Render 3D Partikel & Sensor
+                    document.getElementById('loading-sub').innerText = "Menghidupkan anti-lag engine";
+                    initThree();
+                    createParticles();
+                    initMediaPipe();
+                    animate();
+
+                } else {
+                    document.getElementById('loading-sub').innerText = "Data tidak ditemukan. Pastikan QR valid.";
+                }
+            } catch (e) { 
+                document.getElementById('loading-sub').innerText = "Koneksi terputus. Muat ulang halaman.";
+            }
+        };
+
+        // --- 3. LOGIKA ENGINE PARTIKEL (THREE.JS) ---
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 6.0; 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", alpha: false });
+            renderer.setClearColor(0x080810, 1);
+            // HD: use full device pixel ratio (capped at 2.5 for perf) — was 1.5
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.5));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            renderer.domElement.id = "particle-canvas";
+            document.body.appendChild(renderer.domElement);
+            clock = new THREE.Clock();
+            window.addEventListener('resize', onWindowResize, false);
+
+            document.getElementById('color-picker').addEventListener('input', (e) => {
+                if(particleMaterial) {
+                    particleMaterial.uniforms.u_color.value.set(e.target.value);
+                    // Second color is a warmer/cooler complement
+                    const baseColor = new THREE.Color(e.target.value);
+                    const hsl = {}; baseColor.getHSL(hsl);
+                    const col2 = new THREE.Color().setHSL((hsl.h + 0.08) % 1, hsl.s * 0.7, Math.min(hsl.l * 1.4, 1.0));
+                    particleMaterial.uniforms.u_color2.value.copy(col2);
+                }
+            });
+        }
+
+        function createParticles() {
+            patternNames.forEach(name => {
+                const arr = new Float32Array(particleCount * 3);
+                generatePattern(arr, name);
+                patternData[name] = arr;
+            });
+
+            const geometry = new THREE.BufferGeometry();
+            const randoms = new Float32Array(particleCount);
+            for (let i = 0; i < particleCount; i++) randoms[i] = Math.random();
+
+            geometry.setAttribute('position',    new THREE.BufferAttribute(new Float32Array(patternData['scatter']), 3));
+            geometry.setAttribute('a_startPos',  new THREE.BufferAttribute(new Float32Array(patternData['scatter']), 3));
+            geometry.setAttribute('a_targetPos', new THREE.BufferAttribute(new Float32Array(patternData['scatter']), 3));
+            geometry.setAttribute('a_random',    new THREE.BufferAttribute(randoms, 1));
+
+            // Second color: warm gold complement to the rose base
+            const baseColor = new THREE.Color(document.getElementById('color-picker').value);
+            const hsl = {}; baseColor.getHSL(hsl);
+            const color2 = new THREE.Color().setHSL((hsl.h + 0.08) % 1, hsl.s * 0.7, Math.min(hsl.l * 1.4, 1.0));
+
+            particleMaterial = new THREE.ShaderMaterial({
+                vertexShader:   document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                uniforms: {
+                    u_time:           { value: 0 },
+                    u_transition:     { value: 1.0 },
+                    u_color:          { value: baseColor },
+                    u_color2:         { value: color2 },
+                    u_motionIntensity:{ value: 1.0 },
+                    u_pixelRatio:     { value: Math.min(window.devicePixelRatio, 2.5) }
+                },
+                transparent: true, depthWrite: false, depthTest: false,
+                blending: THREE.AdditiveBlending
+            });
+
+            particles = new THREE.Points(geometry, particleMaterial);
+            scene.add(particles);
+        }
+
+        function generatePattern(positions, pattern) {
+            for (let i = 0; i < particleCount; i++) {
+                let x = 0, y = 0, z = 0;
+                const pIdx = i * 3;
+                const rand1 = Math.random();
+                const rand2 = Math.random();
+                
+                switch (pattern) {
+                    case 'scatter': 
+                        x = (Math.random() - 0.5) * 20; y = (Math.random() - 0.5) * 20; z = (Math.random() - 0.5) * 20;
+                        break;
+                    case 'singularity': 
+                        x = (Math.random() - 0.5) * 0.1; y = (Math.random() - 0.5) * 0.1; z = (Math.random() - 0.5) * 0.1;
+                        break;
+                    case 'chest': 
+                        const pC = Math.random();
+                        if (pC < 0.6) {
+                            let face = Math.floor(Math.random() * 6);
+                            let cx = (Math.random()-0.5)*2.4, cy = (Math.random()-0.5)*1.2 - 0.5, cz = (Math.random()-0.5)*1.6; 
+                            if (face===0) { x=1.2; y=cy; z=cz; } else if (face===1) { x=-1.2; y=cy; z=cz; }
+                            else if (face===2) { x=cx; y=0.1; z=cz; } else if (face===3) { x=cx; y=-1.1; z=cz; }
+                            else if (face===4) { x=cx; y=cy; z=0.8; } else { x=cx; y=cy; z=-0.8; }
+                        } else if (pC < 0.95) {
+                            let theta = Math.PI * rand1, len = (rand2 - 0.5) * 2.4;
+                            x = len; y = 0.1 + 0.8 * Math.sin(theta); z = 0.8 * Math.cos(theta);
+                        } else {
+                            x = (Math.random()-0.5)*0.3; y = 0.0 + (Math.random()-0.5)*0.3; z = 0.85 + (Math.random()*0.1);
+                        }
+                        break;
+                    case 'chest_open_tulip': 
+                        if (Math.random() < 0.3) {
+                            let isLid = Math.random() > 0.6;
+                            if(!isLid) {
+                                let f = Math.floor(Math.random() * 6);
+                                let cx = (Math.random()-0.5)*2.4, cy = (Math.random()-0.5)*1.2 - 0.5, cz = (Math.random()-0.5)*1.6; 
+                                if (f===0) { x=1.2; y=cy; z=cz; } else if (f===1) { x=-1.2; y=cy; z=cz; }
+                                else if (f===2) { x=cx; y=0.1; z=cz; } else if (f===3) { x=cx; y=-1.1; z=cz; }
+                                else if (f===4) { x=cx; y=cy; z=0.8; } else { x=cx; y=cy; z=-0.8; }
+                            } else {
+                                let theta = Math.PI * rand1, len = (rand2 - 0.5) * 2.4;
+                                let origY = 0.8 * Math.sin(theta), origZ = 0.8 * Math.cos(theta);
+                                let angle = 2.0; 
+                                x = len; y = 0.1 + origY * Math.cos(angle) - (origZ+0.8) * Math.sin(angle);
+                                z = -0.8 + origY * Math.sin(angle) + (origZ+0.8) * Math.cos(angle);
+                            }
+                            y -= 2.0; 
+                        } else {
+                            const part = Math.random();
+                            const scaleF = 0.8; 
+                            if (part < 0.6) { 
+                                const u = rand1, v = rand2 * Math.PI * 2;
+                                const rProfile = Math.pow(u, 0.4) * (1.2 - u * 0.4); 
+                                const petals = 1.0 + 0.15 * Math.sin(6 * v) * u;
+                                const R = rProfile * petals * (0.85 + 0.15 * Math.random()) * scaleF;
+                                x = R * Math.cos(v); z = R * Math.sin(v);
+                                y = ((u * 1.8) + (Math.abs(Math.sin(3 * v)) * 0.3 * Math.pow(u, 2))) * scaleF; 
+                            } else if (part < 0.7) { 
+                                const u = rand1, theta = rand2 * Math.PI * 2;
+                                y = (-u * 2.8) * scaleF; 
+                                const r = (0.04 + Math.random() * 0.04) * scaleF; 
+                                x = r * Math.cos(theta) + Math.sin(u * 2.0) * 0.05; z = r * Math.sin(theta);
+                            } else { 
+                                const u = rand1, v = rand2; 
+                                const spineX = Math.pow(u, 1.5) * 1.5 * scaleF;
+                                const spineY = (-2.0 + u * 2.5) * scaleF;
+                                const spineZ = Math.sin(u * Math.PI) * 0.4 * scaleF; 
+                                const leafWidth = Math.sin(u * Math.PI) * 0.5 * (1.0 - u * 0.2) * scaleF;
+                                x = spineX + (v - 0.5) * leafWidth * 0.6;
+                                y = spineY + Math.sin(v * Math.PI) * 0.15;
+                                z = spineZ + (v - 0.5) * leafWidth;
+                            }
+                            y += 0.5; 
+                        }
+                        break;
+                    case 'heart':
+                        const tH = rand2 * Math.PI * 2, rH = Math.sqrt(rand1), scaleH = 0.08;
+                        x = rH * 16 * Math.pow(Math.sin(tH), 3) * scaleH;
+                        y = rH * (13 * Math.cos(tH) - 5 * Math.cos(2*tH) - 2 * Math.cos(3*tH) - Math.cos(4*tH)) * scaleH;
+                        const thickness3D = Math.sqrt(Math.max(0, 1.0 - rH*rH)) * 0.6;
+                        z = (Math.random() - 0.5) * thickness3D; 
+                        y += 0.2; 
+                        break;
+                    case 'explode': 
+                        x = (Math.random() - 0.5) * 20; y = (Math.random() - 0.5) * 20; z = (Math.random() - 0.5) * 20;
+                        break;
+                    case 'frame_dynamic': 
+                        if (Math.random() < 0.85) { 
+                            const wOuter = 1.4, hOuter = 1.8, thick = 0.4, edge = Math.random();
+                            if (edge < 0.25) { x = (Math.random()-0.5) * wOuter * 2; y = hOuter - Math.random() * thick; }
+                            else if (edge < 0.5) { x = (Math.random()-0.5) * wOuter * 2; y = -hOuter + Math.random() * thick; }
+                            else if (edge < 0.75) { x = -wOuter + Math.random() * thick; y = (Math.random()-0.5) * hOuter * 2; }
+                            else { x = wOuter - Math.random() * thick; y = (Math.random()-0.5) * hOuter * 2; }
+                            z = (Math.random() - 0.5) * 0.2; 
+                        } else { 
+                            x = (Math.random() - 0.5) * 2.0; y = (Math.random() - 0.5) * 2.8; z = (Math.random() - 0.5) * 0.5;
+                        }
+                        break;
+                    case 'shatter': 
+                        x = (Math.random() - 0.5) * 8.0; y = -4.0 - Math.random() * 4.0; z = (Math.random() - 0.5) * 5.0;
+                        break;
+                    case 'envelope_closed':
+                        if (Math.random() < 0.65) { 
+                            x = (Math.random()-0.5) * 3.5; y = (Math.random()-0.5) * 2.0 - 0.2; z = (Math.random()-0.5) * 0.1;
+                        } else { 
+                            let u = rand1, v = rand2; if (u + v > 1) { u = 1 - u; v = 1 - v; } 
+                            x = -1.75 + u * 3.5 + v * 1.75; y = 0.8 + u * 0 + v * (-0.8); z = 0.1 + (Math.random()-0.5) * 0.05; 
+                        }
+                        break;
+                    case 'envelope_open':
+                        if (Math.random() < 0.65) { 
+                            x = (Math.random()-0.5) * 3.5; y = (Math.random()-0.5) * 2.0 - 0.2; z = (Math.random()-0.5) * 0.1;
+                        } else { 
+                            let u = rand1, v = rand2; if (u + v > 1) { u = 1 - u; v = 1 - v; } 
+                            x = -1.75 + u * 3.5 + v * 1.75; y = 0.8 + u * 0 + v * 1.5; z = -0.1 + (Math.random()-0.5) * 0.05; 
+                        }
+                        break;
+                }
+                positions[pIdx] = x; positions[pIdx + 1] = y; positions[pIdx + 2] = z;
+            }
+        }
+
+        function transitionPattern(newPattern, durationSec = 3.0) {
+            const startPositions = particles.geometry.attributes.a_startPos.array;
+            const targetPositions = particles.geometry.attributes.a_targetPos.array;
+            startPositions.set(targetPositions);
+            targetPositions.set(patternData[newPattern]);
+            particles.geometry.attributes.a_startPos.needsUpdate = true;
+            particles.geometry.attributes.a_targetPos.needsUpdate = true;
+            particleMaterial.uniforms.u_transition.value = 0.0; 
+            particles.userData.transitioning = true;
+            particles.userData.transitionStartTime = clock.elapsedTime;
+            particles.userData.transitionDuration = durationSec;
+        }
+
+        function updateUIHighlight(stepIndex) {
+            // removed — was causing DOM reflow lag
+        }
+
+        function showSubtitle(text) {
+            // removed — subtitle panel deleted for anti-lag
+            // motionIntensity still reduced briefly so gesture isn't triggered mid-animation
+            if(particleMaterial) particleMaterial.uniforms.u_motionIntensity.value = 0.2;
+            isUIAnimating = true;
+            setTimeout(() => { isUIAnimating = false; }, 800);
+        }
+        function hideSubtitle() {
+            if(particleMaterial) particleMaterial.uniforms.u_motionIntensity.value = 1.0;
+        }
+
+        // --- 4. LOGIKA SLIDE SUPABASE & JEMBATAN AR ---
+        function updateCardUI() {
+            if(slides.length > 0) {
+                document.getElementById('card-title').innerText = slides[slideIndex].t || "Hana Memoria";
+                document.getElementById('card-desc').innerText = slides[slideIndex].b || "...";
+                document.getElementById('btn-next').innerText = (slideIndex === slides.length - 1) ? "MULAI PEMINDAIAN" : "LANJUTKAN";
+            }
+        }
+
+        function nextSlide() {
+            if (slideIndex < slides.length - 1) {
+                const wrapper = document.getElementById('card-text-wrapper');
+                wrapper.style.opacity = 0;
+                setTimeout(() => {
+                    slideIndex++;
+                    updateCardUI();
+                    wrapper.style.opacity = 1;
+                }, 300);
+            } else {
+                startARScanner();
+            }
+        }
+
+        function startARScanner() {
+            // 1. Matikan UI Partikel
+            document.getElementById('message-card').classList.remove('show');
+            document.getElementById('ui-panel').style.display = 'none';
+            document.getElementById('sensor-status').style.display = 'none';
+            document.getElementById('branding').style.display = 'none';
+            if(gesturePill) gesturePill.style.display = 'none';
+
+            // 2. Tampilkan Loading Transisi
+            document.getElementById('loading').innerHTML = "Membuka Kamera Pemindai...<br><span style='font-size:12px;opacity:0.5'>Mohon tunggu</span>";
+            document.getElementById('loading').style.background = "#080810";
+            document.getElementById('loading').classList.remove('fade-out');
+
+            // 3. Matikan AI Kamera (MediaPipe) & Render Three.js untuk membebaskan RAM
+            isAnimating = true; 
+            if (mpCameraInstance) mpCameraInstance.stop();
+            const videoElement = document.getElementById('webcam');
+            if (videoElement.srcObject) {
+                videoElement.srcObject.getTracks().forEach(track => track.stop());
+            }
+            if(renderer) {
+                renderer.dispose();
+                const cvs = document.getElementById('particle-canvas');
+                if(cvs) cvs.remove();
+            }
+
+            // 4. Nyalakan MindAR (Diberi jeda agar OS sempat mematikan kamera MediaPipe)
+            setTimeout(() => {
+                document.getElementById('loading').classList.add('fade-out');
+                document.getElementById('ar-container').classList.add('active');
+                
+                const scene = document.getElementById('ar-scene');
+                if(scene && scene.systems["mindar-image-system"]) {
+                    scene.systems["mindar-image-system"].start();
+                }
+
+                document.getElementById('tutorial-overlay').style.display = 'flex';
+                
+                const targetAR = document.getElementById('target-ar');
+                const vid = document.getElementById('webVideo');
+                targetAR.addEventListener("targetFound", () => {
+                    document.getElementById('tutorial-overlay').style.display = 'none';
+                    vid.play();
+                });
+                targetAR.addEventListener("targetLost", () => {
+                    document.getElementById('tutorial-overlay').style.display = 'flex';
+                    vid.pause();
+                });
+            }, 1000); 
+        }
+
+        // --- 5. LOGIKA GESTUR MEDIAPIPE (TAHAP 1-6) ---
+        function triggerSequenceStep(stepTarget) {
+            if (isAnimating) return;
+            isAnimating = true;
+            updateStatus("Merespons...", "#e59a8d");
+            hideSubtitle();
+
+            if (stepTarget === 1) {
+                updateStatus("Mengumpulkan debu...", "#e59a8d");
+                transitionPattern('singularity', 1.2);
+                setTimeout(() => {
+                    updateStatus("Membentuk Peti...", "#e59a8d");
+                    transitionPattern('chest', 2.5);
+                    setTimeout(() => { 
+                        isAnimating = false; currentStage = 1; updateUIHighlight(1);
+                        updateStatus("Siap.", "#e59a8d");
+                        setGesturePill(1);
+                        showSubtitle("Tahap 2: <span>Buka Lebar Tangan (✋)</span> untuk membuka peti.");
+                    }, 2600); 
+                }, 1300); 
+            } 
+            else if (stepTarget === 2) {
+                updateStatus("Membuka Peti...", "#e59a8d");
+                transitionPattern('chest_open_tulip', 3.5);
+                setTimeout(() => { 
+                    isAnimating = false; currentStage = 2; updateUIHighlight(2);
+                    updateStatus("Siap.", "#e59a8d");
+                    setGesturePill(2);
+                    showSubtitle("Tahap 3: Bentuk <span>Dua Jari (✌️)</span> untuk menggugurkan kelopak.");
+                }, 3600);
+            }
+            else if (stepTarget === 3) {
+                updateStatus("Kelopak berguguran...", "#e59a8d");
+                transitionPattern('heart', 4.0);
+                setTimeout(() => { 
+                    isAnimating = false; currentStage = 3; updateUIHighlight(3);
+                    updateStatus("Siap.", "#e59a8d");
+                    setGesturePill(3);
+                    showSubtitle("Tahap 4: <span>Tunjuk Kedepan (☝️)</span> untuk membingkai cerita.");
+                }, 4100);
+            }
+            else if (stepTarget === 4) {
+                updateStatus("Membesarkan Hati...", "#e59a8d");
+                transitionPattern('explode', 1.0);
+                setTimeout(() => {
+                    updateStatus("Membingkai Kenangan...", "#e59a8d");
+                    transitionPattern('frame_dynamic', 3.0);
+                    setTimeout(() => { 
+                        isAnimating = false; currentStage = 4; updateUIHighlight(4);
+                        updateStatus("Siap.", "#e59a8d");
+                        setGesturePill(4);
+                        showSubtitle("Tahap 5: <span>Tunjuk Ke Atas (👆)</span> untuk menyimpan ke amplop.");
+                    }, 3100);
+                }, 1100);
+            }
+            else if (stepTarget === 5) {
+                updateStatus("Memecahkan Bingkai...", "#e59a8d");
+                transitionPattern('shatter', 1.0);
+                setTimeout(() => {
+                    updateStatus("Membentuk Amplop...", "#e59a8d");
+                    transitionPattern('envelope_closed', 3.0);
+                    setTimeout(() => { 
+                        isAnimating = false; currentStage = 5; updateUIHighlight(5);
+                        updateStatus("Siap.", "#e59a8d");
+                        setGesturePill(5);
+                        showSubtitle("Tahap Terakhir: Beri <span>Cubitan Cinta (🫰)</span> untuk membaca pesan.");
+                    }, 3100);
+                }, 1100);
+            }
+            else if (stepTarget === 6) {
+                updateStatus("Membuka Surat...", "#e59a8d");
+                transitionPattern('envelope_open', 2.5);
+                setTimeout(() => {
+                    updateCardUI(); 
+                    document.getElementById('message-card').classList.add('show');
+                    if(gesturePill) gesturePill.style.opacity = '0';
+                    setTimeout(() => { 
+                        isAnimating = false; currentStage = 6; updateUIHighlight(0);
+                        updateStatus("Selesai.", "white"); 
+                    }, 3000);
+                }, 1500);
+            }
+        }
+
+        function initMediaPipe() {
+            const videoElement = document.getElementById('webcam');
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+            hands.onResults(onHandResults);
+
+            let lastProcessTime = 0;
+            mpCameraInstance = new Camera(videoElement, {
+                onFrame: async () => { 
+                    const now = Date.now();
+                    if (!isAnimating && !isUIAnimating && now - lastProcessTime >= 100) { 
+                        await hands.send({image: videoElement}); 
+                        lastProcessTime = now;
+                    }
+                },
+                width: 320, height: 240 
+            });
+            
+            mpCameraInstance.start().then(() => {
+                document.getElementById('loading').classList.add('fade-out');
+                updateStatus("Menunggu Gestur Pertama...", "white", "rgba(255,255,255,0.2)");
+                
+                setTimeout(() => {
+                    if(currentStage === 0) showSubtitle("Tahap 1: <span>Genggam Tangan (✊)</span> untuk menyatukan kenangan.");
+                }, 2000);
+
+            }).catch(() => {
+                updateStatus("Kamera Gagal Akses", "red", "red");
+            });
+        }
+
+        function onHandResults(results) {
+            if (isAnimating || isUIAnimating) return; 
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                const isIndexOpen = landmarks[8].y < landmarks[6].y;
+                const isMiddleOpen = landmarks[12].y < landmarks[10].y;
+                const isRingOpen = landmarks[16].y < landmarks[14].y;
+                const isPinkyOpen = landmarks[20].y < landmarks[18].y;
+                
+                const pinchDist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
+                const indexLength = Math.hypot(landmarks[8].x - landmarks[5].x, landmarks[8].y - landmarks[5].y);
+                const thumbToIndexBase = Math.hypot(landmarks[4].x - landmarks[5].x, landmarks[4].y - landmarks[5].y);
+                
+                const isThumbOpen = thumbToIndexBase > (indexLength * 0.8);
+
+                const isFist = !isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen;
+                const isOpen = isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen;
+                const isPeace = isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen;
+                
+                const isIndexOnly = isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && pinchDist > 0.1 && !isThumbOpen;
+                const isIndexAndThumb = isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && isThumbOpen;
+                
+                const isPinch = pinchDist < 0.15 && !isMiddleOpen && !isRingOpen && !isPinkyOpen;
+
+                let targetDetected = false;
+
+                if (currentStage === 0 && isFist) targetDetected = true;
+                else if (currentStage === 1 && isOpen) targetDetected = true;
+                else if (currentStage === 2 && isPeace) targetDetected = true;
+                else if (currentStage === 3 && isIndexOnly) targetDetected = true;
+                else if (currentStage === 4 && isIndexAndThumb) targetDetected = true; 
+                else if (currentStage === 5 && isPinch) targetDetected = true; 
+                
+                if (targetDetected) {
+                    gestureTimer++;
+                    if (gestureTimer >= 4) { 
+                        if (currentStage === 0) triggerSequenceStep(1);
+                        else if (currentStage === 1) triggerSequenceStep(2);
+                        else if (currentStage === 2) triggerSequenceStep(3);
+                        else if (currentStage === 3) triggerSequenceStep(4);
+                        else if (currentStage === 4) triggerSequenceStep(5);
+                        else if (currentStage === 5) triggerSequenceStep(6);
+                        gestureTimer = 0;
+                    }
+                } else {
+                    gestureTimer = 0; 
+                }
+            } else {
+                if(!isAnimating && currentStage !== 6) {
+                    updateStatus("Tangan Tidak Terdeteksi", "rgba(255,255,255,0.5)", "rgba(255,255,255,0.2)");
+                }
+            }
+        }
+
+        function animate() {
+            if(isAnimating && renderer == null) return; // Stop jika pindah ke AR
+            requestAnimationFrame(animate);
+
+            if(particleMaterial) {
+                const elapsedTime = clock.getElapsedTime();
+                particleMaterial.uniforms.u_time.value = elapsedTime;
+
+                if (particles && particles.userData.transitioning) {
+                    const { transitionStartTime, transitionDuration } = particles.userData;
+                    const progress = THREE.MathUtils.clamp((elapsedTime - transitionStartTime) / transitionDuration, 0, 1);
+                    
+                    const easedProgress = progress < .5 ? 4 * progress * progress * progress : (progress - 1) * (2 * progress - 2) * (2 * progress - 2) + 1;
+                    particleMaterial.uniforms.u_transition.value = easedProgress;
+                    
+                    if (progress >= 1) particles.userData.transitioning = false;
+                }
+
+                if (particles && !particles.userData.transitioning) {
+                    if (currentStage === 1) {
+                        particles.rotation.y += 0.02;
+                        particles.rotation.x = 0; particles.rotation.z = 0;
+                    } else if (currentStage === 5) {
+                        particles.rotation.y += 0.01;
+                        particles.rotation.x = 0; particles.rotation.z = 0;
+                    } else if (currentStage === 6) {
+                        particles.rotation.y = THREE.MathUtils.lerp(particles.rotation.y, 0, 0.05);
+                    } else {
+                        particles.rotation.y = elapsedTime * 0.2;
+                        particles.rotation.x = Math.cos(elapsedTime * 0.1) * 0.1;
+                    }
+                }
+
+                renderer.render(scene, camera);
+            }
+        }
+
+        function onWindowResize() {
+            if(camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+    </script>
+</body>
+</html>
