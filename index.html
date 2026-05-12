@@ -160,60 +160,44 @@
         uniform float u_time;
         uniform float u_transition;
         uniform float u_motionIntensity;
-        uniform float u_pixelRatio;
-        
+
         attribute float a_random;
         attribute vec3 a_startPos;
         attribute vec3 a_targetPos;
-        
+
         varying float vRandom;
-        varying float vDepth;
-        varying vec3 vPos;
 
         void main() {
             vRandom = a_random;
             vec3 basePos = mix(a_startPos, a_targetPos, u_transition);
 
-            float speed1 = 0.4 + a_random * 0.6;
-            float speed2 = 0.3 + a_random * 0.5;
-            float amp    = (0.03 + a_random * 0.06) * u_motionIntensity;
             float phase  = a_random * 62.83;
-
+            float amp    = (0.02 + a_random * 0.04) * u_motionIntensity;
             vec3 pos = basePos + vec3(
-                sin(u_time * speed1 + phase)                          * amp,
-                cos(u_time * speed2 + phase * 1.3)                    * amp,
-                sin(u_time * (speed1 + speed2) * 0.5 + phase * 0.7)  * amp * 0.6
+                sin(u_time * (0.4 + a_random * 0.4) + phase) * amp,
+                cos(u_time * (0.3 + a_random * 0.3) + phase) * amp,
+                sin(u_time * (0.2 + a_random * 0.2) + phase) * amp * 0.5
             );
 
-            vPos = pos;
-
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-            vDepth = -mvPosition.z;
 
-            // Kecil-kecil: 0.5–1.5px, tanpa hero boost
-            float baseSize = 0.5 + a_random * 1.0;
-            gl_PointSize = baseSize * (120.0 / -mvPosition.z);
+            // Ukuran FIXED kecil: 1.0–2.0px, tidak diperbesar oleh jarak kamera
+            gl_PointSize = 1.0 + a_random * 1.0;
             gl_Position  = projectionMatrix * mvPosition;
         }
     </script>
     <script id="fragmentShader" type="x-shader/x-fragment">
         uniform vec3 u_color;
-        uniform vec3 u_color2;
         varying float vRandom;
-        varying float vDepth;
-        varying vec3 vPos;
 
         void main() {
             vec2 uv = gl_PointCoord - vec2(0.5);
             float dist = length(uv);
             if (dist > 0.5) discard;
 
-            // Titik kecil lembut — tanpa glow/bloom
-            float alpha = smoothstep(0.5, 0.1, dist) * (0.5 + vRandom * 0.35);
-
-            // Warna dari u_color, sedikit variasi kecerahan
-            vec3 col = u_color * (0.7 + vRandom * 0.3);
-
+            // Titik tajam kecil, alpha rendah agar additive tidak membakar
+            float alpha = smoothstep(0.5, 0.2, dist) * (0.18 + vRandom * 0.14);
+            vec3 col = u_color * (0.8 + vRandom * 0.2);
             gl_FragColor = vec4(col, alpha);
         }
     </script>
@@ -232,7 +216,7 @@
         // Tiga.js Partikel Variabel
         let scene, camera, renderer, clock;
         let particles, particleMaterial;
-        let particleCount = window.innerWidth < 768 ? 3000 : 6000;
+        let particleCount = window.innerWidth < 768 ? 1500 : 3000;
         const patternData = {};
         const patternNames = ['scatter', 'singularity', 'chest', 'chest_open_tulip', 'heart', 'explode', 'frame_dynamic', 'shatter', 'envelope_closed', 'envelope_open'];
         
@@ -378,7 +362,7 @@
                 transparent: true,
                 depthWrite: false,
                 depthTest: false,
-                blending: THREE.NormalBlending
+                blending: THREE.AdditiveBlending
             });
 
             particles = new THREE.Points(geometry, particleMaterial);
@@ -520,15 +504,10 @@
         }
 
         function updateUIHighlight(stepIndex) {
-            // removed — was causing DOM reflow lag
+            // removed
         }
-
         function showSubtitle(text) {
-            // removed — subtitle panel deleted for anti-lag
-            // motionIntensity still reduced briefly so gesture isn't triggered mid-animation
-            if(particleMaterial) particleMaterial.uniforms.u_motionIntensity.value = 0.2;
-            isUIAnimating = true;
-            setTimeout(() => { isUIAnimating = false; }, 800);
+            // removed
         }
         function hideSubtitle() {
             if(particleMaterial) particleMaterial.uniforms.u_motionIntensity.value = 1.0;
@@ -613,7 +592,6 @@
             if (isAnimating) return;
             isAnimating = true;
             updateStatus("Merespons...", "#e59a8d");
-            hideSubtitle();
 
             if (stepTarget === 1) {
                 updateStatus("Mengumpulkan debu...", "#e59a8d");
@@ -621,32 +599,29 @@
                 setTimeout(() => {
                     updateStatus("Membentuk Peti...", "#e59a8d");
                     transitionPattern('chest', 2.5);
-                    setTimeout(() => { 
-                        isAnimating = false; currentStage = 1; updateUIHighlight(1);
-                        updateStatus("Siap.", "#e59a8d");
+                    setTimeout(() => {
+                        isAnimating = false; currentStage = 1;
+                        updateStatus("Siap ✋", "#e59a8d");
                         setGesturePill(1);
-                        showSubtitle("Tahap 2: <span>Buka Lebar Tangan (✋)</span> untuk membuka peti.");
-                    }, 2600); 
-                }, 1300); 
-            } 
+                    }, 2600);
+                }, 1300);
+            }
             else if (stepTarget === 2) {
                 updateStatus("Membuka Peti...", "#e59a8d");
                 transitionPattern('chest_open_tulip', 3.5);
-                setTimeout(() => { 
-                    isAnimating = false; currentStage = 2; updateUIHighlight(2);
-                    updateStatus("Siap.", "#e59a8d");
+                setTimeout(() => {
+                    isAnimating = false; currentStage = 2;
+                    updateStatus("Siap ✌️", "#e59a8d");
                     setGesturePill(2);
-                    showSubtitle("Tahap 3: Bentuk <span>Dua Jari (✌️)</span> untuk menggugurkan kelopak.");
                 }, 3600);
             }
             else if (stepTarget === 3) {
                 updateStatus("Kelopak berguguran...", "#e59a8d");
                 transitionPattern('heart', 4.0);
-                setTimeout(() => { 
-                    isAnimating = false; currentStage = 3; updateUIHighlight(3);
-                    updateStatus("Siap.", "#e59a8d");
+                setTimeout(() => {
+                    isAnimating = false; currentStage = 3;
+                    updateStatus("Siap ☝️", "#e59a8d");
                     setGesturePill(3);
-                    showSubtitle("Tahap 4: <span>Tunjuk Kedepan (☝️)</span> untuk membingkai cerita.");
                 }, 4100);
             }
             else if (stepTarget === 4) {
@@ -655,11 +630,10 @@
                 setTimeout(() => {
                     updateStatus("Membingkai Kenangan...", "#e59a8d");
                     transitionPattern('frame_dynamic', 3.0);
-                    setTimeout(() => { 
-                        isAnimating = false; currentStage = 4; updateUIHighlight(4);
-                        updateStatus("Siap.", "#e59a8d");
+                    setTimeout(() => {
+                        isAnimating = false; currentStage = 4;
+                        updateStatus("Siap 👆", "#e59a8d");
                         setGesturePill(4);
-                        showSubtitle("Tahap 5: <span>Tunjuk Ke Atas (👆)</span> untuk menyimpan ke amplop.");
                     }, 3100);
                 }, 1100);
             }
@@ -669,11 +643,10 @@
                 setTimeout(() => {
                     updateStatus("Membentuk Amplop...", "#e59a8d");
                     transitionPattern('envelope_closed', 3.0);
-                    setTimeout(() => { 
-                        isAnimating = false; currentStage = 5; updateUIHighlight(5);
-                        updateStatus("Siap.", "#e59a8d");
+                    setTimeout(() => {
+                        isAnimating = false; currentStage = 5;
+                        updateStatus("Siap 🫰", "#e59a8d");
                         setGesturePill(5);
-                        showSubtitle("Tahap Terakhir: Beri <span>Cubitan Cinta (🫰)</span> untuk membaca pesan.");
                     }, 3100);
                 }, 1100);
             }
@@ -681,12 +654,12 @@
                 updateStatus("Membuka Surat...", "#e59a8d");
                 transitionPattern('envelope_open', 2.5);
                 setTimeout(() => {
-                    updateCardUI(); 
+                    updateCardUI();
                     document.getElementById('message-card').classList.add('show');
                     if(gesturePill) gesturePill.style.opacity = '0';
-                    setTimeout(() => { 
-                        isAnimating = false; currentStage = 6; updateUIHighlight(0);
-                        updateStatus("Selesai.", "white"); 
+                    setTimeout(() => {
+                        isAnimating = false; currentStage = 6;
+                        updateStatus("Selesai.", "white");
                     }, 3000);
                 }, 1500);
             }
