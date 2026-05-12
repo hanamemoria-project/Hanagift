@@ -174,16 +174,15 @@
             vRandom = a_random;
             vec3 basePos = mix(a_startPos, a_targetPos, u_transition);
 
-            // Layered 3D motion — each particle on its own orbit
             float speed1 = 0.4 + a_random * 0.6;
             float speed2 = 0.3 + a_random * 0.5;
-            float amp    = (0.04 + a_random * 0.09) * u_motionIntensity;
-            float phase  = a_random * 62.83; // 0..2PI * 10
+            float amp    = (0.03 + a_random * 0.06) * u_motionIntensity;
+            float phase  = a_random * 62.83;
 
             vec3 pos = basePos + vec3(
-                sin(u_time * speed1 + phase)        * amp,
-                cos(u_time * speed2 + phase * 1.3)  * amp,
-                sin(u_time * (speed1 + speed2) * 0.5 + phase * 0.7) * amp * 0.6
+                sin(u_time * speed1 + phase)                          * amp,
+                cos(u_time * speed2 + phase * 1.3)                    * amp,
+                sin(u_time * (speed1 + speed2) * 0.5 + phase * 0.7)  * amp * 0.6
             );
 
             vPos = pos;
@@ -191,10 +190,9 @@
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
             vDepth = -mvPosition.z;
 
-            // HD: bigger base size, tripled size for "hero" particles (a_random > 0.92)
-            float heroBoost = a_random > 0.92 ? 3.5 : 1.0;
-            float baseSize  = (1.8 + a_random * 2.2) * heroBoost * u_pixelRatio;
-            gl_PointSize = baseSize * (280.0 / -mvPosition.z);
+            // Kecil-kecil: 0.5–1.5px, tanpa hero boost
+            float baseSize = 0.5 + a_random * 1.0;
+            gl_PointSize = baseSize * (120.0 / -mvPosition.z);
             gl_Position  = projectionMatrix * mvPosition;
         }
     </script>
@@ -208,34 +206,14 @@
         void main() {
             vec2 uv = gl_PointCoord - vec2(0.5);
             float dist = length(uv);
-
-            // Hard discard outside circle
             if (dist > 0.5) discard;
 
-            // === Multi-layer glow (HD bloom effect) ===
-            // 1. Bright hot core
-            float core   = smoothstep(0.12, 0.0,  dist);
-            // 2. Mid glow ring
-            float mid    = smoothstep(0.35, 0.05, dist) * 0.6;
-            // 3. Soft outer halo
-            float outer  = smoothstep(0.50, 0.15, dist) * 0.25;
+            // Titik kecil lembut — tanpa glow/bloom
+            float alpha = smoothstep(0.5, 0.1, dist) * (0.5 + vRandom * 0.35);
 
-            float glow = core + mid + outer;
+            // Warna dari u_color, sedikit variasi kecerahan
+            vec3 col = u_color * (0.7 + vRandom * 0.3);
 
-            // Color: blend between two palette colors based on random + position
-            float t = vRandom * 0.7 + sin(vPos.x * 2.0 + vPos.y) * 0.15 + 0.15;
-            t = clamp(t, 0.0, 1.0);
-            vec3 col = mix(u_color, u_color2, t);
-
-            // Hero particles: brighter white-hot core
-            if (vRandom > 0.92) {
-                col = mix(col, vec3(1.0, 0.97, 0.92), core * 0.8);
-            }
-
-            // Brightness boost by random
-            col *= 0.75 + vRandom * 0.5;
-
-            float alpha = glow * 0.92;
             gl_FragColor = vec4(col, alpha);
         }
     </script>
@@ -254,7 +232,7 @@
         // Tiga.js Partikel Variabel
         let scene, camera, renderer, clock;
         let particles, particleMaterial;
-        let particleCount = window.innerWidth < 768 ? 5000 : 12000; // HD: was 3000/8000
+        let particleCount = window.innerWidth < 768 ? 3000 : 6000;
         const patternData = {};
         const patternNames = ['scatter', 'singularity', 'chest', 'chest_open_tulip', 'heart', 'explode', 'frame_dynamic', 'shatter', 'envelope_closed', 'envelope_open'];
         
@@ -357,8 +335,7 @@
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", alpha: false });
             renderer.setClearColor(0x080810, 1);
-            // HD: use full device pixel ratio (capped at 2.5 for perf) — was 1.5
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.5));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
             renderer.setSize(window.innerWidth, window.innerHeight);
             
             renderer.domElement.id = "particle-canvas";
@@ -369,11 +346,6 @@
             document.getElementById('color-picker').addEventListener('input', (e) => {
                 if(particleMaterial) {
                     particleMaterial.uniforms.u_color.value.set(e.target.value);
-                    // Second color is a warmer/cooler complement
-                    const baseColor = new THREE.Color(e.target.value);
-                    const hsl = {}; baseColor.getHSL(hsl);
-                    const col2 = new THREE.Color().setHSL((hsl.h + 0.08) % 1, hsl.s * 0.7, Math.min(hsl.l * 1.4, 1.0));
-                    particleMaterial.uniforms.u_color2.value.copy(col2);
                 }
             });
         }
@@ -394,24 +366,19 @@
             geometry.setAttribute('a_targetPos', new THREE.BufferAttribute(new Float32Array(patternData['scatter']), 3));
             geometry.setAttribute('a_random',    new THREE.BufferAttribute(randoms, 1));
 
-            // Second color: warm gold complement to the rose base
-            const baseColor = new THREE.Color(document.getElementById('color-picker').value);
-            const hsl = {}; baseColor.getHSL(hsl);
-            const color2 = new THREE.Color().setHSL((hsl.h + 0.08) % 1, hsl.s * 0.7, Math.min(hsl.l * 1.4, 1.0));
-
             particleMaterial = new THREE.ShaderMaterial({
                 vertexShader:   document.getElementById('vertexShader').textContent,
                 fragmentShader: document.getElementById('fragmentShader').textContent,
                 uniforms: {
                     u_time:           { value: 0 },
                     u_transition:     { value: 1.0 },
-                    u_color:          { value: baseColor },
-                    u_color2:         { value: color2 },
-                    u_motionIntensity:{ value: 1.0 },
-                    u_pixelRatio:     { value: Math.min(window.devicePixelRatio, 2.5) }
+                    u_color:          { value: new THREE.Color(document.getElementById('color-picker').value) },
+                    u_motionIntensity:{ value: 1.0 }
                 },
-                transparent: true, depthWrite: false, depthTest: false,
-                blending: THREE.AdditiveBlending
+                transparent: true,
+                depthWrite: false,
+                depthTest: false,
+                blending: THREE.NormalBlending
             });
 
             particles = new THREE.Points(geometry, particleMaterial);
