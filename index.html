@@ -31,21 +31,7 @@
         .ui-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255, 255, 255, 0.6); margin-bottom: 5px; display: block;}
         input[type="color"] { border: none; width: 100px; height: 30px; border-radius: 5px; cursor: pointer; background: none; }
 
-        /* ── Minimal gesture hint pill (no DOM reflow, opacity only) ── */
-        #gesture-pill {
-            position: absolute; bottom: 110px; left: 50%;
-            transform: translateX(-50%);
-            background: rgba(12, 12, 18, 0.88);
-            border: 1px solid rgba(229,154,141,0.35);
-            border-radius: 40px; padding: 10px 22px;
-            font-size: 13px; font-family: 'Poppins', sans-serif;
-            color: rgba(255,255,255,0.9); letter-spacing: 0.5px;
-            z-index: 110; pointer-events: none;
-            will-change: opacity;
-            transition: opacity 0.4s ease;
-            text-align: center; white-space: nowrap;
-        }
-        #gesture-pill span { color: #e59a8d; font-weight: 600; }
+        /* gesture pill removed */
         
         #branding {
             position: absolute; bottom: 30px; left: 0; width: 100%; text-align: center;
@@ -138,9 +124,7 @@
         <input type="color" id="color-picker" value="#e59a8d">
     </div>
 
-    <!-- subtitle & guide-list removed for anti-lag -->
-    <!-- Minimal gesture pill: opacity-only transitions, no layout reflow -->
-    <div id="gesture-pill">✊ <span>Genggam tangan</span> untuk memulai</div>
+    <!-- subtitle & guide-list removed -->
     <video id="webcam" autoplay playsinline muted style="display: none;"></video>
 
     <div id="ar-container"></div>
@@ -171,8 +155,8 @@
             vRandom = a_random;
             vec3 basePos = mix(a_startPos, a_targetPos, u_transition);
 
-            float phase  = a_random * 62.83;
-            float amp    = (0.02 + a_random * 0.04) * u_motionIntensity;
+            float phase = a_random * 62.83;
+            float amp   = (0.02 + a_random * 0.04) * u_motionIntensity;
             vec3 pos = basePos + vec3(
                 sin(u_time * (0.4 + a_random * 0.4) + phase) * amp,
                 cos(u_time * (0.3 + a_random * 0.3) + phase) * amp,
@@ -181,8 +165,9 @@
 
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
 
-            // Ukuran FIXED kecil: 1.0–2.0px, tidak diperbesar oleh jarak kamera
-            gl_PointSize = 1.0 + a_random * 1.0;
+            // Perspektif wajar: terlihat jelas tapi tetap kecil (2–4px)
+            float sz = (2.0 + a_random * 2.0) * (300.0 / -mvPosition.z);
+            gl_PointSize = clamp(sz, 1.5, 4.0);
             gl_Position  = projectionMatrix * mvPosition;
         }
     </script>
@@ -226,22 +211,7 @@
         let gestureTimer = 0;
 
         const statusEl = document.getElementById('sensor-status');
-        // subtitle elements removed for anti-lag
-
-        const gesturePill = document.getElementById('gesture-pill');
-        const GESTURE_HINTS = [
-            '✊ <span>Genggam tangan</span> untuk memulai',
-            '✋ <span>Buka lebar tangan</span> untuk membuka peti',
-            '✌️ Bentuk <span>dua jari</span> untuk menggugurkan kelopak',
-            '☝️ <span>Tunjuk ke depan</span> untuk membingkai cerita',
-            '👆 <span>Tunjuk ke atas</span> untuk menyimpan ke amplop',
-            '🫰 Beri <span>cubitan cinta</span> untuk membuka pesan',
-        ];
-        function setGesturePill(stageIdx) {
-            if (gesturePill && GESTURE_HINTS[stageIdx] !== undefined) {
-                gesturePill.innerHTML = GESTURE_HINTS[stageIdx];
-            }
-        }
+        // gesture pill removed
 
         let lastStatusText = "";
         function updateStatus(text, color = null, borderColor = null) {
@@ -542,7 +512,6 @@
             document.getElementById('ui-panel').style.display = 'none';
             document.getElementById('sensor-status').style.display = 'none';
             document.getElementById('branding').style.display = 'none';
-            if(gesturePill) gesturePill.style.display = 'none';
 
             // 2. Tampilkan Loading Transisi
             document.getElementById('loading').innerHTML = "Membuka Kamera Pemindai...<br><span style='font-size:12px;opacity:0.5'>Mohon tunggu</span>";
@@ -601,8 +570,7 @@
                     transitionPattern('chest', 2.5);
                     setTimeout(() => {
                         isAnimating = false; currentStage = 1;
-                        updateStatus("Siap ✋", "#e59a8d");
-                        setGesturePill(1);
+                        updateStatus("✋ Buka Lebar", "#e59a8d");
                     }, 2600);
                 }, 1300);
             }
@@ -611,8 +579,7 @@
                 transitionPattern('chest_open_tulip', 3.5);
                 setTimeout(() => {
                     isAnimating = false; currentStage = 2;
-                    updateStatus("Siap ✌️", "#e59a8d");
-                    setGesturePill(2);
+                    updateStatus("✌️ Dua Jari", "#e59a8d");
                 }, 3600);
             }
             else if (stepTarget === 3) {
@@ -620,8 +587,7 @@
                 transitionPattern('heart', 4.0);
                 setTimeout(() => {
                     isAnimating = false; currentStage = 3;
-                    updateStatus("Siap ☝️", "#e59a8d");
-                    setGesturePill(3);
+                    updateStatus("☝️ Tunjuk Depan", "#e59a8d");
                 }, 4100);
             }
             else if (stepTarget === 4) {
@@ -632,8 +598,7 @@
                     transitionPattern('frame_dynamic', 3.0);
                     setTimeout(() => {
                         isAnimating = false; currentStage = 4;
-                        updateStatus("Siap 👆", "#e59a8d");
-                        setGesturePill(4);
+                        updateStatus("👆 Tunjuk Atas", "#e59a8d");
                     }, 3100);
                 }, 1100);
             }
@@ -645,8 +610,7 @@
                     transitionPattern('envelope_closed', 3.0);
                     setTimeout(() => {
                         isAnimating = false; currentStage = 5;
-                        updateStatus("Siap 🫰", "#e59a8d");
-                        setGesturePill(5);
+                        updateStatus("🫰 Cubit Cinta", "#e59a8d");
                     }, 3100);
                 }, 1100);
             }
@@ -656,7 +620,6 @@
                 setTimeout(() => {
                     updateCardUI();
                     document.getElementById('message-card').classList.add('show');
-                    if(gesturePill) gesturePill.style.opacity = '0';
                     setTimeout(() => {
                         isAnimating = false; currentStage = 6;
                         updateStatus("Selesai.", "white");
